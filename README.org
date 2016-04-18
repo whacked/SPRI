@@ -1,0 +1,10 @@
+
+
+* development
+
+  1. set =httpd-root= for emacs =(setq httpd-root default-directory)=
+     change port with =(setq httpd-port 9000)=
+  2. =M-x httpd-start=
+  3. open html file and =M-x skewer-mode=
+  4. open browser to =http://localhost:9000/index.html=
+
