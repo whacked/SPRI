@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>example</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-beta1/jquery.min.js"></script>
+    <script src="http://localhost:9000/skewer"></script>
+  </head>
+  <body>
+    <style>
+      #ta_source {
+      width:500px;
+      height:300px;
+      }
+      #output {
+      width: 100%;
+      height: 100%;
+      background: #EEE;
+      font-family: monospace;
+      }
+      td {
+      vertical-align: top;
+      }
+      span.highlight {
+      background: yellow;
+      }
+    </style>
+    <div id="content"></div>
+    <table>
+      <tr>
+        <td>
+          <textarea
+             style=""
+             id="ta_source"
+             readonly="readonly"></textarea>
+        </td>
+        <td>
+          <button id="btn_add">add</button>
+          <ul></ul>
+        </td>
+        <td>
+          <div id="output"></div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

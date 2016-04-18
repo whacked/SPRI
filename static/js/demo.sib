@@ -1,0 +1,58 @@
+;; console test
+;; (var HL-OPEN "<"
+;;      HL-CLOSE ">")
+
+(var HL-OPEN "<span class=\"highlight\">"
+     HL-CLOSE "</span>")
+
+(def wrap-highlight (text)
+     (+ HL-OPEN text HL-CLOSE))
+
+(def wrap-highlight-by-index (beg end text)
+     (+ (.substring text 0 beg)
+        (wrap-highlight (.substring text beg end))
+        (.substring text end)))
+
+;; array of array of index
+(def render-all-highlight (aaidx text)
+     (var rtn text)
+     (each aidx (.reverse aaidx)
+           (assign rtn (wrap-highlight-by-index (get aidx 0)
+                                                (get aidx 1)
+                                                rtn)))
+     rtn)
+
+(var LOREM "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum")
+(scoped
+ (.val ($ "#ta_source") LOREM)
+ (.on ($ "#btn_add") "click"
+      (#> (var ul ($ "ul"))
+          (.append ul (scoped (var li ($ "<li>"))
+                              (var input ($ "<input>"
+                                            {class: "index-range"
+                                              type: "text"}))
+                              (.on input "change"
+                                   (#> (var txt (.val input))
+                                       (var aidx (.map (.split txt ",")
+                                                       (#-> (parseInt))))
+                                       (console.log
+                                        (get aidx 0)
+                                        (get aidx 1))))
+                              (.append li input)
+                              li)))))
+(def update () 
+     (var source (.val ($ "#ta_source"))
+          aaidx [])
+     (.each ($ "input.index-range")
+            (lambda (idx el)
+                    (console.log "OK")
+                    (.val ($ el))
+                    (.push aaidx (.map (.split (.val ($ el)) ",")
+                                       (#-> (parseInt))))))
+     (.html ($ "#output")
+            (render-all-highlight aaidx source)))
+
+
+(update)
+
+
