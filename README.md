@@ -141,4 +141,31 @@ these should all work (i.e. give the same first hit; later hits may not be the s
 -_spri:_spri://1/lowry/protein_measurement_with_the_folin_phenol_reagent
 -_spri:_spri://1/protein_measurement_with_the_folin_phenol_reagent
 
+# development
+
+see https://github.com/jbr/sibilant for sibilant guide
+
+# content addressing strategies
+
+## textual content
+
+### address resolution strategies
+
+### offset-based addressesing
+
+#### absolute addressing
+
+#### relative addressing
+
+### token based addressing
+
+#### best anchor resolution
+
+#### best anchor derivation
+
+#### multiple anchor + relative offset resolution
+
+#### multiple anchor + closest match resolution
+
+
 
