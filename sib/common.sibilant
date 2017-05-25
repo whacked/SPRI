@@ -1,0 +1,11 @@
+(var fs (require "fs"))
+
+(def expand-user (p)
+     (p.replace
+      (regex "^~")
+      (get process.env "HOME")))
+
+(def slurp (file-path)
+     (fs.readFileSync file-path "utf-8"))
+
+

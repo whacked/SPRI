@@ -16,7 +16,7 @@
 ;; array of array of index
 (def render-all-highlight (aaidx text)
      (var rtn text)
-     (each aidx (.reverse aaidx)
+     (each aidx (.reverse (.sort aaidx))
            (assign rtn (wrap-highlight-by-index (get aidx 0)
                                                 (get aidx 1)
                                                 rtn)))
