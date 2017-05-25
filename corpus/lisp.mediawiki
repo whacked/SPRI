@@ -1,0 +1,19 @@
+# https://en.wikipedia.org/wiki/Lisp_(programming_language)
+
+'''Lisp''' (historically, '''LISP''') is a family of [[computer]] [[programming language]]s with a long history and a distinctive, fully [[parenthesized]] [[Polish notation#Computer programming|prefix notation]].<ref>
+{{cite book
+ | title = Milestones in computer science and information technology
+ | author = Edwin D. Reilly
+ | publisher = Greenwood Publishing Group
+ | year = 2003
+ | isbn = 978-1-57356-521-9
+ | pages = 156–157
+ | url = https://books.google.com/books?id=JTYPKxug49IC&pg=PA157
+ }}</ref>
+Originally specified in 1958, Lisp is the second-oldest [[high-level programming language]] in widespread use today. Only [[Fortran]] is older, by one year.<ref>{{cite web|url=http://mitpress.mit.edu/sicp/full-text/book/book-Z-H-5.html|quote=Lisp is a survivor, having been in use for about a quarter of a century. Among the active programming languages only Fortran has had a longer life.|title=SICP: Foreword}}</ref><ref>{{cite web|url=http://www-formal.stanford.edu/jmc/history/lisp/node6.html#SECTION00060000000000000000|title=Conclusions}}</ref> Lisp has changed since its early days, and many [[Programming language dialect|dialects]] have existed over its history. Today, the best known general-purpose Lisp dialects are [[Common Lisp]] and [[Scheme (programming language)|Scheme]].
+
+Lisp was originally created as a practical [[mathematical notation]] for [[computer programs]], influenced by the notation of [[Alonzo Church]]'s [[lambda calculus]]. It quickly became the favored programming language for [[artificial intelligence]] (AI) research. As one of the earliest programming languages, Lisp pioneered many ideas in [[computer science]], including [[tree data structure]]s, [[Garbage collection (computer science)|automatic storage management]], [[dynamic typing]], [[Conditional (computer programming)|conditionals]], [[higher-order function]]s, [[Recursion (computer science)|recursion]], the [[self-hosting]] [[compiler]],<ref name="Graham">{{cite web |title=Revenge of the Nerds |author=Paul Graham |url=http://www.paulgraham.com/icad.html |accessdate=2013-03-14}}</ref> and the [[read–eval–print loop]].<ref>{{Cite book|url=http://www.informit.com/articles/article.aspx?p=1671639&seqNum=3|title=Influential Programming Languages, Part 4: Lisp|last=Chisnall|first=David|date=2011-01-12}}</ref>
+
+The name ''LISP'' derives from "LISt Processor".<ref name=ArtOfLisp>{{cite book|last1=Jones|first1=Robin|last2=Maynard|first2=Clive|last3=Stewart|first3=Ian|title=The Art of Lisp Programming|date=December 6, 2012|publisher=Springer Science & Business Media|isbn=9781447117193|page=2}}</ref> [[Linked list]]s are one of Lisp's major [[data structure]]s, and Lisp [[source code]] is made of lists. Thus, Lisp programs can manipulate source code as a data structure, giving rise to the [[Macro (computer science)|macro]] systems that allow programmers to create new syntax or new [[domain-specific language]]s embedded in Lisp.
+
+The interchangeability of code and data gives Lisp its instantly recognizable syntax. All program code is written as ''[[s-expression]]s'', or parenthesized lists. A function call or syntactic form is written as a list with the function or operator's name first, and the arguments following; for instance, a function {{Lisp2|f}} that takes three arguments would be called as {{Lisp2|(f arg1 arg2 arg3)}}.
