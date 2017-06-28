@@ -8,4 +8,21 @@
 (def slurp (file-path)
      (fs.readFileSync file-path "utf-8"))
 
+(def get-file-extension (fname)
+     (var $p-file-extension (regex "(?:\\.([^.]+))?$"))
+     (|> $p-file-extension
+         (.exec fname)
+         (get 1)))
+
+;; see ~/dev/javascript/hyperbloviate/sib/universal.sibilant
+(def merge ()
+     (|> (Array.prototype.slice.call arguments)
+         (tap (.unshift {}))
+         (Object.assign.apply null #)))
+
+(def select-keys (m klist)
+     (with-return-var
+      out {}
+      (each (k) klist
+            (set out k (get m k)))))
 
