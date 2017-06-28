@@ -1,0 +1,753 @@
+(var franc (require "franc")
+     jp-tiny-segmenter (require "tiny-segmenter")
+     stopword (require "stopword"))
+
+(def match-to-indexes (corpus token-seq)
+     ;; assumes that ALL tokens in `token-seq`
+     ;; are present, in the same order, in `corpus`
+     (with-return-var
+      out []
+      (var start-index 0)
+      (each (token ith) token-seq
+            (var token-start-index
+                 (|> corpus
+                     (.substr start-index)
+                     (.indexOf token)
+                     (+ start-index))
+                 token-end-index (+ token-start-index token.length))
+            (out.push {text: token
+                       token-index: ith
+                       start: token-start-index
+                       end: token-end-index}))))
+
+(def string-to-token-list (s)
+     (var trimmed-string (trim s)
+          franc-language-code (franc trimmed-string))
+     (switch franc-language-code
+             (["cmn" "jpn" "kor"]
+              (|> (new jp-tiny-segmenter)
+                  (.segment trimmed-string)))
+             (default ;; segment on space
+              (|> trimmed-string
+                  (.split (regex "\\s+"))))))
+
+(def get-most-important-words (corpus n-most)
+     (|> corpus
+         (string-to-token-list)
+         (stopword.removeStopwords)
+         ;; (filter (#(word) word) #)
+         (.sort (#(a b)
+                  (if (< a.length b.length) 1 -1)))
+         (.slice 0 (or n-most 6))))
+
+(def make-anchor (corpus token-locator)
+     ;; corpus: string
+     ;; token-locator: object, the most vanilla is
+     ;;   {index: closest-token-starting-index
+     ;;    token: token
+     ;;    }
+     ;; STRATEGY
+     ;; - find 1 preceding token
+     ;; - find 1 postceding token
+     ;; - find 2 tokens before by importance
+     ;; - find 2 tokens after by importance
+     ;; each of these is expressed by an anchor object, which is
+     ;; - {token: anchor-token
+     ;;    offset: offset-from-target-token
+     ;;    }
+     ;; EXAMPLE
+     ;; (make-anchor some-paragraph
+     ;;              {token: some-token-in-paragraph
+     ;;               token-index: closest-index})
+
+     ;; tolerance tuning
+     (var $token-length-multiplier 3
+          OFFSET-TOLERANCE (|> (get token-locator 'token 'length)
+                               (* $token-length-multiplier)))
+
+     (var tokens (|> (string-to-token-list corpus)
+                     (match-to-indexes corpus #))
+          candidate-token (or (get token-locator 'token)
+                              (corpus.substr (get token-locator 'index)
+                                             (get token-locator 'length)))
+          candidate-token-index (get token-locator 'token-index)
+          candidate-index (or (get token-locator 'index)
+                              (with-return-var
+                               abs-index null
+                               (var target-token-index (get token-locator 'token-index))
+                               (each (spl-object i) tokens
+                                     (when (= i target-token-index)
+                                           ;; found match
+                                           (assign abs-index (get spl-object 'start))
+                                           (assign candidate-token-index i))))))
+
+     ;; first, get exact location of target via token-locator
+     (var bound-pre (Math.max 0 (- candidate-index OFFSET-TOLERANCE))
+          bound-post (|> (Math.min corpus.length (+ candidate-index
+                                                    (or (get token-locator 'length)
+                                                        (get token-locator 'token 'length))
+                                                    OFFSET-TOLERANCE)))
+          ;; holds [absolute-offset-distance absolute-index]
+          ;; relative to the token locator's candidate index
+          candidate-list [])
+     
+     ;; we should now have a corpus substring via
+     ;; (corpus.substring bound-pre bound-post)
+     (each (match-index) (find-all-matches-with-indexes (corpus.substring bound-pre bound-post)
+                                                        candidate-token)
+           (var abs-index (+ bound-pre match-index))
+           (candidate-list.push [(Math.abs (- candidate-index
+                                              match-index
+                                              abs-index))
+                                 abs-index]))
+
+     ;; guard assertions
+     (when (not (number? bound-pre))
+           (throw (new Error "bound-pre assertion fail")))
+     (when (not (number? bound-post))
+           (throw (new Error "bound-post assertion fail")))
+     (when (= 0 (count candidate-list))
+           (throw (new Error "no candidate tokens found")))
+
+     (var best-abs-index (|> candidate-list
+                             (.sort)
+                             (first)
+                             (last))
+          pre-token (when (< 0 candidate-token-index)
+                          (get tokens (- candidate-token-index 1)))
+          post-token (when (< (+ 1 candidate-token-index)
+                              tokens.length)
+                           (get tokens (+ 1 candidate-token-index)))
+          remaining-pre-substring (if pre-token
+                                      (corpus.substring 0 (get pre-token 'start))
+                                      "")
+          remaining-post-substring (if post-token
+                                       (corpus.substring (get post-token 'end))
+                                       ""))
+
+     ;; matched substring: (corpus.substr best-abs-index candidate-token.length)
+     
+     (var n-flanking-anchor 3
+          pre-important-candidates (get-most-important-words remaining-pre-substring n-flanking-anchor)
+          pre-important-words []
+          post-important-candidates (get-most-important-words remaining-post-substring n-flanking-anchor)
+          post-important-words [])
+
+     (each (word) pre-important-candidates
+           (var maybe-candidate (|> (find-all-matches-with-indexes remaining-pre-substring word)
+                                    (.map (#(idx)
+                                            (- idx best-abs-index)))
+                                    (.sort)
+                                    (first)))
+           (when maybe-candidate
+                 (pre-important-words.push {token: word
+                                            offset: maybe-candidate})))
+
+     (each (word) post-important-candidates
+           (var maybe-candidate (|> (find-all-matches-with-indexes remaining-post-substring word)
+                                    (.map (#(idx)
+                                            (var abs-idx (+ idx (get post-token 'end)))
+                                            (- abs-idx best-abs-index)))
+                                    (.sort)
+                                    (first)))
+           (when maybe-candidate
+                 (post-important-words.push {token: word
+                                             offset: maybe-candidate})))
+
+     {index: best-abs-index
+      pre-token: (get-or-null pre-token 'text)
+      pre-anchors: pre-important-words
+      post-token: (get-or-null post-token 'text)
+      post-anchors: post-important-words})
+
+;; see file:~/dev/javascript/hyperbloviate/sib/transclusion.sibilant#TransclusionSource
+(def FileSystemCorpus (base-dir)
+     (with-return-var
+      self this
+      (assign
+       self.base-dir base-dir
+       self.cache {}
+       self.has (#(key)
+                  (self.cache.hasOwnProperty key))
+       self.add (#(fpath)
+                  (var ext (get-file-extension fpath))
+                  (set self.cache fpath
+                       (|> (get self.extHandlerMapping ext)
+                           (or (get self.extHandlerMapping "default"))
+                           (call fpath))))
+       self.get-entry-list (#>
+                            (with-return-var
+                             out []
+                             (each (key) (Object.keys self.cache)
+                                   (out.push (get self.cache key))))))
+      (|> self.base-dir
+          (dive-dir (#(f)
+                      (|> (regex "tid$")
+                          (.test f))))
+          (each (fpath) #
+                (self.add fpath)))))
+
+(def wrap-in-context (text extra)
+     (merge extra {text: text}))
+(assign FileSystemCorpus.prototype
+        {extHandlerMapping:
+         {default: (#(fpath)
+                     (console.info "calling default handler")
+                     (|> fpath
+                         (fs.readFileSync "utf-8")
+                         (wrap-in-context)))}}
+        FileSystemCorpus.registerHandler
+        (#(extension handler)
+          (console.log "registering for " extension)
+          (set this.prototype.extHandlerMapping extension handler)))
+
+;; .tid handler
+(FileSystemCorpus.registerHandler "tid"
+                                  (#(fpath)
+                                    ;; this function from tiddlywiki.sibilant
+                                    (var tid-context (load-file-to-tid-context
+                                                      fpath
+                                                      {tiddlywiki: $tw}))
+                                    ;; (console.log fpath tid-context)
+                                    (get tid-context "fields")))
+
+(comment
+ (var fuse-file-index
+      (scoped
+       (var index-keys ["path" "title" "tags" "type"])
+       (new Fuse
+            (|> (Object.keys corpus.cache)
+                (.map (#(k)
+                        (|> (get corpus.cache k)
+                            (select-keys (index-keys.slice 1))
+                            (merge {path: k})))))
+            {includeScore: true
+             keys: index-keys}))))
+
+;; ;; fuzzy resolve file
+;; (each (match) (fuse-file-index.search "bash")
+;;       (console.log match)
+;;       (console.log match.item.path))
+
+(comment
+ (var fuse-text-index
+      (new Fuse
+           (corpus.get-entry-list)
+           {includeMatches: true
+            includeScore: true
+            keys: ["title" "tags" "text" "type"]
+            })))
+
+;; ;; fuzzy resolve text
+;; (each (match) (fuse-text-index.search "bash")
+;;       (console.log match))
+
+;;;; FILE NAME RESOLUTION
+;; direct file name resolution
+;; - tiny.org      --> tiny.org
+;; - moozorgjs.org --> moozorgjs.org
+;; fuzzy file name resolution
+;; - t*ny.org      --> tiny.org
+;; - t*ny          --> tiny.org
+;; content based file name resolution
+;; - #gg+#you      --> tiny.org
+;; - #gg#you       --> tiny.org
+;; - #gg you       --> tiny.org
+;; - #gg%20you     --> tiny.org
+;;;; IN-TEXT RESOLUTION (constrictor)
+;;; ORG-MODE
+;; headers
+;; $resolved_org_file::*huh --> tiny.org::*huh (exact header)
+;;; GENERAL
+;;; use $RESOLVER=moozorgjs.org
+;; nearest token
+;; $RESOLVER#handling todo  --> file:moozorgjs.org::*Handling%20TODO (first match)
+;; nearest statement / line
+;; $RESOLVER#line/support+scheduled --> file:moozorgjs.org::*Implement%20todo%20attributes
+;; --> i.e. "Support attributes like ~SCHEDULED:~."
+;; nearest paragraph
+;; $RESOLVER#para/org.js parser converter= --> intro paragraph in file:moozorgjs.org
+;; nearest context-dependent section
+;; $RESOLVER#section/web browser --> resolves by org resolver
+
+
+(var corpus-cache {})
+(def load-corpus [path]
+     {path: path
+      text: (slurp path)})
+(def load-corpus-cache [name]
+     (var $base-dir (expand-user "~/dev/SPRI/corpus/"))
+     (glob.glob (path.join $base-dir
+                           (+ name ".*"))
+                (#(_ matches)
+                  (|> matches
+                      (first)
+                      (load-corpus)
+                      (set corpus-cache name #)))))
+
+;; (load-corpus-cache "lisp")
+;; (load-corpus-cache "repetitive")
+
+(def get-corpus-paragraphs (corpus)
+     (var splitter (regex "\\r?\\n{2,}" "g"))
+     (with-return-var
+      out []
+      (var last-index 0
+           trimmed-corpus (corpus.replace (regex "\\s+$") "")
+           safety 10)
+      (var match (splitter.exec trimmed-corpus))
+      (while (and match
+                  (< 0 safety))
+             (decr safety)
+             (out.push {index: last-index
+                        text: (trimmed-corpus.substring
+                               last-index match.index)})
+             (assign last-index (+ match.index
+                                   (get match 0 'length))
+                     match (splitter.exec trimmed-corpus)))
+      (when (< last-index (- trimmed-corpus.length 1))
+            (out.push {index: last-index
+                       text: (trimmed-corpus.substring last-index)}))))
+
+(def load-all-corpus-paragraphs (corpus-base-dir)
+     (|> corpus-base-dir
+         (fs.readdirSync)
+         (.map (#(filename)
+                 (var full-path (path.join corpus-base-dir filename))
+                 (|> full-path
+                     (slurp)
+                     (get-corpus-paragraphs)
+                     (.map (#(entry)
+                             (merge entry
+                                    {path: full-path}))))))
+         (.reduce (#(a b)
+                    (a.concat b)))))
+
+
+;;;; SEARCH STRATEGY
+
+;; NUMERIC ANCHOR RESOLUTION
+(def get-anchor-location (anc corpus)
+     )
+
+(def assemble-text (seg-seq)
+     (with-return-var
+      out []
+      (each (seg) (seg-seq.sort (#(a b)
+                                  (if (< a.index b.index)
+                                      1 -1)))
+            (out.push seg.text))))
+
+(def find-all-matches-with-indexes (corpus matcher)
+     (when matcher
+           (with-return-var
+            out []
+            (var re (regex matcher "g")
+                 match true)
+            (while match
+                   (when (defined? (get match 'index))
+                         (out.push match.index))
+                   (assign match (re.exec corpus))))))
+
+(def split-with-indexes (corpus splitter-regex-string)
+     (with-return-var
+      out []
+      (var re (regex splitter-regex-string "g")
+           last-index 0
+           m (re.exec corpus)
+           safety 10000)
+      (while (and m
+                  (< 0 safety))
+             (decr safety)
+             (out.push {text: (corpus.substring last-index m.index)
+                        start: last-index
+                        end: m.index})
+             (assign last-index (+ m.index (get m 0 "length"))
+                     m (re.exec corpus)))
+      (when (< safety 0)
+            (throw (new Error "failsafe!")))
+      (when (< last-index corpus.length)
+            (out.push {text: (corpus.substring last-index)
+                       start: last-index
+                       end: corpus.length}))))
+
+(def find-closest (expected-match expected-index corpus pre-tolerance post-tolerance)
+     ;; return the starting index of the occurence of `expected-match`
+     ;; within `corpus` that minimizes distance between the match and
+     ;; `expected-index`; only search within given `tolerance`
+     ;; when not found, returns null
+     (when expected-match
+      (assign pre-tolerance (or pre-tolerance expected-match.length)
+              post-tolerance (or post-tolerance expected-match.length))
+      (var start-idx (Math.max 0 (- expected-index pre-tolerance))
+           end-idx (Math.min (- corpus.length)
+                             (+ expected-index
+                                expected-match.length
+                                post-tolerance)))
+      (var candidates []
+           sub-corpus (corpus.substring start-idx end-idx))
+      (each (match) (find-all-matches-with-indexes
+                     sub-corpus expected-match)
+            (var abs-idx (+ start-idx match))
+            (candidates.push [(Math.abs (- abs-idx expected-index)) abs-idx]))
+      (if (= 0 candidates.length)
+          null
+          (|> candidates
+              (.sort)
+              (first)
+              (last)))))
+
+(scoped
+ (console.clear)
+ (def apply-anchor-get-miccup (anchor corpus)
+      ;; FIXME -- this is space-separated text specific
+      (def get-nearest-token-boundary (corpus nearest-index)
+           (var $TOKEN-DELIMITER " ")
+           [(|> (corpus.substring 0 nearest-index)
+                (.lastIndexOf $TOKEN-DELIMITER)
+                (+ $TOKEN-DELIMITER.length)
+                (Math.max 0))
+            (|> (corpus.substring nearest-index)
+                (.indexOf $TOKEN-DELIMITER)
+                (or 0)
+                (+ nearest-index)
+                (Math.min corpus.length))])
+     
+      (def sort-desc-by-offset (a b)
+           (if (> a.offset b.offset) -1 1))
+
+      (with-return-var
+       out-reverseme []
+       (var target-index anchor.index
+            start-index target-index
+            end-index corpus.length)
+
+       (var sub-corpus (corpus.substring start-index end-index))
+       (each (post-anchor i) (|> anchor
+                                 (get 'post-anchors)
+                                 (.sort sort-desc-by-offset))
+             (var closest-candidate-index (scoped
+                                           (var maybe-match
+                                                (find-closest post-anchor.token
+                                                              post-anchor.offset
+                                                              sub-corpus))
+                                           (if (and (number? maybe-match)
+                                                    (< -1 maybe-match))
+                                               (+ maybe-match start-index))))
+             (console.info "FIND CLOSEST"
+                           closest-candidate-index
+                           post-anchor.token
+                           "in ---" sub-corpus)
+             (when closest-candidate-index
+                   (when (< closest-candidate-index end-index)
+                         (out-reverseme.push (corpus.substring
+                                              (+ closest-candidate-index
+                                                 (get post-anchor 'token 'length))
+                                              end-index)))
+                   (out-reverseme.push
+                    ["span"
+                     {style: {background: "red"
+                              color: "white"}}
+                     (corpus.substr closest-candidate-index
+                                    (get post-anchor 'token 'length))])
+                   (assign end-index closest-candidate-index)))
+       
+       (var maybe-post-token-index (find-closest
+                                    (get anchor 'post-token)
+                                    target-index
+                                    corpus
+                                    0 (* 5 (get anchor 'post-token 'length))))
+
+       ;; ;; find the token closest to the given index
+       ;; (var target-token-boundary (get-nearest-token-boundary corpus anchor.index))
+
+       (when maybe-post-token-index
+             (out-reverseme.push
+              (corpus.substring (+ maybe-post-token-index
+                                   (get anchor 'post-token 'length))
+                                end-index))
+             (out-reverseme.push
+              ["span"
+               {style: {background: "orange"}}
+               (corpus.substr maybe-post-token-index
+                              (get anchor 'post-token 'length))])
+             (assign end-index maybe-post-token-index))
+      
+       (var maybe-pre-token-index (find-closest
+                                   (get anchor 'pre-token)
+                                   target-index
+                                   corpus
+                                   (* 5 (get anchor 'pre-token 'length)) 0))
+
+       (when maybe-pre-token-index
+             (out-reverseme.push
+              (corpus.substring (+ maybe-pre-token-index
+                                   (get anchor 'pre-token 'length))
+                                end-index))
+             (out-reverseme.push
+              ["span"
+               {style: {background: "pink"}}
+               (corpus.substr maybe-pre-token-index
+                              (get anchor 'pre-token 'length))])
+             (assign end-index maybe-pre-token-index))
+
+       (var sub-corpus (corpus.substring 0 end-index))
+       (each (pre-anchor) (|> anchor
+                              (get 'pre-anchors)
+                              (.sort sort-desc-by-offset))
+             (var pre-anchor-expected-index (+ target-index pre-anchor.offset)
+                  closest-candidate-index (find-closest pre-anchor.token
+                                                        pre-anchor-expected-index
+                                                        sub-corpus))
+             (when closest-candidate-index
+                   (when (< closest-candidate-index end-index)
+                         (out-reverseme.push (corpus.substring
+                                              (+ closest-candidate-index
+                                                 (get pre-anchor 'token 'length))
+                                              end-index)))
+                   (out-reverseme.push
+                    ["span"
+                     {style: {background: "lime"}}
+                     (corpus.substr closest-candidate-index
+                                    (get pre-anchor 'token 'length))])
+                   (assign end-index closest-candidate-index)))
+       (when (< 0 end-index)
+             (out-reverseme.push (corpus.substring 0 end-index)))
+       (out-reverseme.reverse)))
+
+ (var p ["p"])
+ (miccup-into-content
+  ["div"
+   (p.concat
+    (apply-anchor-get-miccup
+     ;; anchor for "id"
+     {index: 50
+      pre-token: "nihil"
+      post-token: "possit"
+      pre-anchors: [{token: "eripuit"
+                     offset: -29}
+                    {token: "graeci"
+                     offset: -43}
+                    {token: "semper"
+                     offset: -36}]
+      post-anchors: [{token: "forensibus"
+                      offset: 67}
+                     {token: "efficiendi"
+                      offset: 78}
+                     {token: "deseruisse"
+                      offset: 144}
+                     ]}
+     (+ "Qui eu graeci semper eripuit. "
+        "An eos natum nihil, "
+        "id possit percipit pri. "
+        "Vidisse iuvaret imperdiet no cum. "
+        "Atomorum forensibus efficiendi no vis. "
+        "Ne sed ferri debet congue, "
+        "vel animal antiopam deseruisse ut.")))])
+ )
+
+
+
+
+
+
+
+;; anchor -> expand with order
+(def expand-anchor (corpus matchers start-index)
+     (with-return-var
+      out []
+      (def find-matcher (matcher start-index)
+           (var limit 100
+                half-width (|> matcher.length
+                               (/ 2)
+                               (Math.floor))
+                string-before (corpus.substr (|> start-index
+                                                 (- limit)
+                                                 (+ 1 half-width)
+                                                 (Math.max 0))
+                                             limit)
+                string-after (corpus.substr (- start-index half-width)
+                                            limit)
+
+                i-before (scoped
+                          (var idx (string-before.lastIndexOf matcher))
+                          (when (< -1 idx)
+                                (|> start-index
+                                    (- limit)
+                                    (+ idx 1 half-width))))
+                i-before-dist (if (not (= null i-before))
+                                  (- start-index i-before)
+                                  Infinity)
+
+                i-after (scoped
+                         (var idx (string-after.indexOf matcher))
+                         (when (< -1 idx)
+                               (|> start-index
+                                   (+ idx)
+                                   (- half-width))))
+                i-after-dist (if (exists? i-after)
+                                 (scoped
+                                  (console.warn i-after)
+                                  (- i-after start-index))
+                                 Infinity)
+
+                i-result (if (< i-before-dist i-after-dist)
+                             (scoped
+                              (console.log "found pre")
+                              i-before)
+                             (scoped
+                              (console.log "found post")
+                              i-after)))
+
+           (when i-result
+                 {text: (corpus.substr i-result matcher.length)
+                  index: i-result
+                  length: matcher.length}))
+      (var cur-index start-index)
+      (each (matcher) matchers
+            (var maybe-found (find-matcher matcher cur-index))
+            (when maybe-found
+                  (out.push maybe-found)))))
+(comment
+ (scoped
+  (console.clear)
+ 
+  (var target-idx 2720
+       target-words ["unintentionally" "can" "constructed" "redundancies" "asdfsadf"])
+
+  (var expanded-seq (|> (expand-anchor corpus-repetitive
+                                       target-words
+                                       target-idx))
+       parts [{index: target-idx
+               content: ["span"
+                         {style: {width: "0.1em"
+                                  border: "1px solid red"}}]}])
+
+  (each (expanded) expanded-seq
+        (parts.push {index: expanded.index
+                     content: ["span"
+                               {style: {width: "0.1em"
+                                        border: "2px solid lime"
+                                        "border-top-left-radius": "5px"
+                                        "border-bottom-left-radius": "5px"
+                                        }}
+                               ""]})
+        (parts.push {index: (+ expanded.index expanded.length)
+                     content: ["span"
+                               {style: {width: "0.1em"
+                                        border: "2px solid green"
+                                        "border-top-right-radius": "5px"
+                                        "border-bottom-right-radius": "5px"
+                                        }}
+                               ""]}))
+
+  (var out ["pre"]
+       cur-idx 0)
+  (each (part) (parts.sort (#(a b)
+                             (if (< a.index b.index)
+                                 -1 1)))
+        (out.push (|> corpus-repetitive
+                      (.substring cur-idx part.index)))
+        (when part.content
+              (out.push part.content))
+        (assign cur-idx part.index))
+  (out.push (|> corpus-repetitive
+                (.substr cur-idx)))
+
+  (miccup-into-inject ["div" out])))
+
+
+;; fuzzy string match resolution
+
+(def parse-pre-post-to-struct (s pre post pre-post-wrapper)
+     (with-return-var
+      out []
+      (var re (regex (+ pre "(?!" post ")(.+?)" post) "g")
+           last-index 0
+           safety 1000)
+      (var match (re.exec s))
+      (while (and match
+                  (< 0 safety))
+             (decr safety)
+             (if (and (< last-index match.index))
+                 (out.push (s.substring last-index match.index)))
+             (out.push (pre-post-wrapper
+                        (get match 1)))
+             (assign last-index (+ match.index
+                                   (get match 0 'length))
+                     match (re.exec s)))
+      (if (< last-index s.length)
+          (out.push (s.substring last-index)))))
+
+
+(var $pre-marker "•<"
+     $post-marker ">•"
+     $fuzzy-search-options {pre: $pre-marker
+                            post: $post-marker
+                            extract: (#(element)
+                                       element.text)})
+
+;; demo
+(comment
+ (scoped
+  (console.clear)
+
+  (var search (m.prop ""))
+  (var corpus-list (scoped
+                    (var corpus (get corpus-cache "lisp"))
+                    (|> corpus
+                        (get 'text)
+                        (get-corpus-paragraphs)
+                        (.map (#(entry)
+                                (merge entry
+                                       {path: corpus.path}))))))
+
+  (var ipt null)
+  (miccup-into-content
+   ["div"
+    ["input"
+     {type: "text"
+      config: (#(dom)
+                (assign ipt dom))
+      onkeyup: (#>
+                (var search (get ipt 'value)
+                     filtered (fuzzy.filter search corpus-list $fuzzy-search-options)
+                     results (filtered.map
+                              (#(entry)
+                                (|> ["li"]
+                                    (.concat
+                                     (parse-pre-post-to-struct
+                                      entry.string
+                                      options.pre
+                                      options.post
+                                      (#(match)
+                                        ["b"
+                                         {style: {color: "red"}}
+                                         match])))
+                                    (.concat
+                                     [["a"
+                                       {href: entry.original.path}
+                                       entry.original.path]
+                                      entry.path])))))
+                (console.log filtered)
+                (miccup-into-inject
+                 ["div"
+                  results]))}]
+    ])
+
+  ))
+
+(scoped
+ (console.clear)
+ (var pre "•<"
+      post ">•"
+      s (+ "hello"
+           pre "there" post
+           "how"
+           pre "are" post
+           "you"))
+ (|> (parse-pre-post-to-struct s pre post
+                               (#(x)
+                                 (+ ">>>" x "<<<")))
+     (console.log))
+ )
