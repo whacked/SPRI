@@ -167,5 +167,10 @@ see https://github.com/jbr/sibilant for sibilant guide
 
 #### multiple anchor + closest match resolution
 
+#### clustered muliple anchor + closest match resolution
 
+    resolved based on absolute closest distance to cluster
 
+#### clustered muliple anchor + intuitive match resolution
+
+    resolved based on what a human would say is the closest match
