@@ -26,3 +26,16 @@
       (each (k) klist
             (set out k (get m k)))))
 
+(def count (seq)
+     ;; clojure-style count alias
+     (get seq 'length))
+
+(def get-or-null (obj)
+     ;; return null if search path not found
+     (var search-path (rest (arguments)))
+     (if (or (empty? search-path)
+             (not (exists? obj)))
+         obj
+         (call get-or-null
+               (get obj (first search-path))
+               ...(rest search-path))))
