@@ -1,0 +1,102 @@
+;; see file:~/dev/javascript/hyperbloviate/sib/transclusion.sibilant#TransclusionSource
+(def FileSystemCorpus (base-dir)
+     (with-return-var
+      self this
+      (assign
+       self.base-dir base-dir
+       self.cache {}
+       self.has (#(key)
+                  (self.cache.hasOwnProperty key))
+       self.add (#(fpath)
+                  (var ext (get-file-extension fpath))
+                  (set self.cache fpath
+                       (|> (get self.extHandlerMapping ext)
+                           (or (get self.extHandlerMapping "default"))
+                           (call fpath))))
+       self.get-entry-list (#>
+                            (with-return-var
+                             out []
+                             (each (key) (Object.keys self.cache)
+                                   (out.push (get self.cache key))))))
+      (|> self.base-dir
+          (dive-dir (#(f)
+                      (|> (regex "tid$")
+                          (.test f))))
+          (each (fpath) #
+                (self.add fpath)))))
+
+(def wrap-in-context (text extra)
+     (merge extra {text: text}))
+(assign FileSystemCorpus.prototype
+        {extHandlerMapping:
+         {default: (#(fpath)
+                     (console.info "calling default handler")
+                     (|> fpath
+                         (fs.readFileSync "utf-8")
+                         (wrap-in-context)))}}
+        FileSystemCorpus.registerHandler
+        (#(extension handler)
+          (console.log "registering for " extension)
+          (set this.prototype.extHandlerMapping extension handler)))
+
+;; .tid handler
+(FileSystemCorpus.registerHandler "tid"
+                                  (#(fpath)
+                                    ;; this function from tiddlywiki.sibilant
+                                    (var tid-context (load-file-to-tid-context
+                                                      fpath
+                                                      {tiddlywiki: $tw}))
+                                    ;; (console.log fpath tid-context)
+                                    (get tid-context "fields")))
+
+(var corpus-cache {})
+(def load-corpus [path]
+     {path: path
+      text: (slurp path)})
+(def load-corpus-cache [name]
+     (var $base-dir (expand-user "~/dev/SPRI/corpus/"))
+     (glob.glob (path.join $base-dir
+                           (+ name ".*"))
+                (#(_ matches)
+                  (|> matches
+                      (first)
+                      (load-corpus)
+                      (set corpus-cache name #)))))
+
+;; (load-corpus-cache "lisp")
+;; (load-corpus-cache "repetitive")
+
+(def get-corpus-paragraphs (corpus)
+     (with-return-var
+      out []
+      (var last-index 0
+           trimmed-corpus (corpus.replace (regex "\\s+$") "")
+           safety 99999)
+      (var match ($re-paragraph-separator.exec trimmed-corpus))
+      (while (and match
+                  (< 0 safety))
+             (decr safety)
+             (out.push {index: last-index
+                        text: (trimmed-corpus.substring
+                               last-index match.index)})
+             (assign last-index (+ match.index
+                                   (get match 0 'length))
+                     match ($re-paragraph-separator.exec trimmed-corpus)))
+      (when (< last-index (- trimmed-corpus.length 1))
+            (out.push {index: last-index
+                       text: (trimmed-corpus.substring last-index)}))))
+
+(def load-all-corpus-paragraphs (corpus-base-dir)
+     (|> corpus-base-dir
+         (fs.readdirSync)
+         (.map (#(filename)
+                 (var full-path (path.join corpus-base-dir filename))
+                 (|> full-path
+                     (slurp)
+                     (get-corpus-paragraphs)
+                     (.map (#(entry)
+                             (merge entry
+                                    {path: full-path}))))))
+         (.reduce (#(a b)
+                    (a.concat b)))))
+
